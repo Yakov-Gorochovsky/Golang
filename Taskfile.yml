@@ -1,0 +1,35 @@
+# https://taskfile.dev
+# Task is a popular modern alternative to Make, written in Go.
+# It is designed to be cross-platform and works perfectly on Windows without needing external tools.
+
+version: '3'
+
+tasks:
+  run:
+    desc: Run the Go application directly without creating a permanent executable
+    cmds:
+      - go run cmd/server/main.go
+
+  build:
+    desc: Build the Go application into an executable
+    cmds:
+      - go build -o bin/server.exe cmd/server/main.go
+
+  test:
+    desc: Run all tests in the project
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  docker:
+    desc: Build the optimized minimal Docker container
+    cmds:
+      - docker build -t telemetry-api:latest .
+
+# Usage in your terminal:
+# Instead of `make run`, you type `task run`
+# Instead of `make build`, you type `task build`
