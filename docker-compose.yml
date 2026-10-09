@@ -4,6 +4,7 @@ services:
   db:
     image: postgres:15-alpine
     container_name: telemetry_pg
+    restart: unless-stopped
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -13,6 +14,30 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d telemetry"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: telemetry_api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      DATABASE_URL: "postgres://user:password@db:5432/telemetry?sslmode=disable"
+      STORAGE_BACKEND: "postgres"
+      BATCH_SIZE: "500"
+      FLUSH_TIMEOUT_SEC: "3"
+      WORKER_COUNT: "4"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

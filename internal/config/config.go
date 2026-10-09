@@ -8,11 +8,12 @@ import (
 
 // AppConfig holds all environment-level configuration for the application.
 type AppConfig struct {
-	Port         string
-	DatabaseURL  string
-	BatchSize    int
-	FlushTimeout string
-	WorkerCount  int
+	Port           string
+	DatabaseURL    string
+	StorageBackend string
+	BatchSize      int
+	FlushTimeout   string
+	WorkerCount    int
 }
 
 // Load reads from environment variables, providing sensible defaults if missing.
@@ -23,11 +24,12 @@ func Load() *AppConfig {
 	}
 
 	return &AppConfig{
-		Port:         getEnv("PORT", "8080"),
-		DatabaseURL:  getEnv("DATABASE_URL", "postgres://user:password@localhost:5432/telemetry"),
-		BatchSize:    getEnvAsInt("BATCH_SIZE", 500),
-		FlushTimeout: getEnv("FLUSH_TIMEOUT_SEC", "3"),
-		WorkerCount:  getEnvAsInt("WORKER_COUNT", defaultWorkers),
+		Port:           getEnv("PORT", "8080"),
+		DatabaseURL:    getEnv("DATABASE_URL", "postgres://user:password@localhost:5432/telemetry"),
+		StorageBackend: getEnv("STORAGE_BACKEND", "postgres"),
+		BatchSize:      getEnvAsInt("BATCH_SIZE", 500),
+		FlushTimeout:   getEnv("FLUSH_TIMEOUT_SEC", "3"),
+		WorkerCount:    getEnvAsInt("WORKER_COUNT", defaultWorkers),
 	}
 }
 

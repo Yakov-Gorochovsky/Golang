@@ -2,9 +2,17 @@ version: '3'
 
 tasks:
   run:
-    desc: Run the Go application directly
+    desc: Run the Go application directly with PostgreSQL
     cmds:
       - go run cmd/server/main.go
+
+  run-mock:
+    desc: Run application locally with zero external dependencies (in-memory mock mode)
+    cmds:
+      - go run cmd/server/main.go
+    env:
+      STORAGE_BACKEND: memory
+      PORT: 8080
 
   build:
     desc: Build the Go application binary

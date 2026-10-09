@@ -27,28 +27,39 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Problem: Default pgxpool settings do not adapt to CPU cores/workers, risking connection starvation or exhaustion.
-	// Solution: Calibrate connection pool dynamically to worker concurrency with warm minimum connections.
-	poolConfig, err := repository.NewPoolConfig(cfg.DatabaseURL, cfg.WorkerCount)
-	if err != nil {
-		slog.Error("Failed to build database pool configuration", "error", err)
-		os.Exit(1)
-	}
+	var repo repository.TelemetryRepository
+	var pinger handler.Pinger
 
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		slog.Error("Unable to connect to database", "error", err)
-		os.Exit(1)
-	}
-	defer pool.Close()
+	if cfg.StorageBackend == "memory" || cfg.DatabaseURL == "memory" {
+		slog.Info("Running with in-memory storage (zero-dependency local development mode)")
+		memRepo := repository.NewMemoryTelemetryRepo()
+		repo = memRepo
+		pinger = memRepo
+	} else {
+		// Problem: Default pgxpool settings do not adapt to CPU cores/workers, risking connection starvation or exhaustion.
+		// Solution: Calibrate connection pool dynamically to worker concurrency with warm minimum connections.
+		poolConfig, err := repository.NewPoolConfig(cfg.DatabaseURL, cfg.WorkerCount)
+		if err != nil {
+			slog.Error("Failed to build database pool configuration", "error", err)
+			os.Exit(1)
+		}
 
-	if err := pool.Ping(ctx); err != nil {
-		slog.Error("Cannot ping database", "error", err)
-		os.Exit(1)
-	}
-	slog.Info("Database connection pool established")
+		pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+		if err != nil {
+			slog.Error("Unable to connect to database", "error", err)
+			os.Exit(1)
+		}
+		defer pool.Close()
 
-	repo := repository.NewPostgresTelemetryRepo(pool)
+		if err := pool.Ping(ctx); err != nil {
+			slog.Error("Cannot ping database", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Database connection pool established")
+
+		repo = repository.NewPostgresTelemetryRepo(pool)
+		pinger = pool
+	}
 
 	flushTimeoutSec, _ := time.ParseDuration(cfg.FlushTimeout + "s")
 	ingester := worker.NewIngester(repo, cfg.BatchSize, flushTimeoutSec, cfg.WorkerCount)
@@ -57,7 +68,7 @@ func main() {
 	telemetryHandler := handler.NewTelemetryHandler(ingester)
 	// Problem: Single unsegmented /health probe causes cascading crashloop pod kills during DB timeouts.
 	// Solution: Segregate liveness and readiness; wire pool pinger into /ready probe.
-	router := handler.NewRouterWithPinger(telemetryHandler, pool)
+	router := handler.NewRouterWithPinger(telemetryHandler, pinger)
 
 	// Problem: Default http.Server lacks ReadHeaderTimeout, leaving sockets vulnerable to Slowloris attacks.
 	// Solution: Instantiate server via hardened server factory enforcing strict read header deadlines and header byte caps.
