@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Yakov-Gorochovsky/project/internal/model"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +18,27 @@ type TelemetryRepository interface {
 // PostgresTelemetryRepo persists telemetry events to PostgreSQL.
 type PostgresTelemetryRepo struct {
 	pool *pgxpool.Pool
+}
+
+// Problem: Default connection pool configs don't adapt to machine core counts or worker concurrency, causing starvation or connection spikes.
+// Solution: Scale MaxConns to 2x worker count, pre-warm MinConns, and set aggressive keepalives to evict stale idle sockets.
+func NewPoolConfig(databaseURL string, workerCount int) (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse database connection string: %w", err)
+	}
+
+	if workerCount < 2 {
+		workerCount = 2
+	}
+
+	cfg.MaxConns = int32(workerCount * 2)
+	cfg.MinConns = int32(workerCount)
+	cfg.MaxConnLifetime = 30 * time.Minute
+	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.HealthCheckPeriod = 1 * time.Minute
+
+	return cfg, nil
 }
 
 // NewPostgresTelemetryRepo constructs a Postgres-backed telemetry repository.

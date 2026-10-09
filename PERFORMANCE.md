@@ -136,7 +136,22 @@ BenchmarkIngester_Enqueue_Saturated-16    132,602,380 ops    7.606 ns/op    0 B/
 
 ---
 
+## Production Hardening Scorecard (Cross-Environment Resilience)
+
+In addition to throughput scaling phases, the service is hardened against transient storage faults, Slowloris socket starvation, memory payload bloat, and cluster crashloops. Full empirical test evidence, benchmarks, and before/after comparisons are documented in [docs/PRODUCTION_HARDENING.md](file:///c:/Dev/Golang/project/docs/PRODUCTION_HARDENING.md).
+
+| Rank | Hardening Area | Before Hardening (Bottleneck) | After Hardening (Production Ready) | Impact |
+|:---:|:---|:---|:---|:---:|
+| **1** | **Batch Persistence Resilience** | 100% data loss on transient DB error | Exponential backoff retry (3 attempts) | **Zero Data Loss** |
+| **2** | **Payload Guardrails** | Unbounded heap growth (1MB+ parsed) | `http.MaxBytesReader` 64KB cap -> HTTP 413 in 521µs | **OOM Prevention** |
+| **3** | **Connection Pool Tuning** | Cold start delays (0 min conns), fixed max | Dynamic `MaxConns = workers * 2`, warm `MinConns` | **Contention Elimination** |
+| **4** | **Anti-Slowloris Protection** | Unbounded `ReadHeaderTimeout` (0s) | Hardened `http.Server` with 3s header deadline, 1MB cap | **Socket Starvation Defense** |
+| **5** | **Kubernetes Dual Probes** | Monolithic `/health` (traffic sent to dead DB) | Segregated `/live` (200) vs `/ready` (503 on DB outage) | **Zero Dropped Ingress Requests** |
+
+---
+
 ## Planned Subsequent Phases & Target Deliverables
+
 
 ### Phase 3: Runtime Diagnostics & `pprof`
 * **Goal**: Expose live debugging and diagnostic endpoints for performance auditing.

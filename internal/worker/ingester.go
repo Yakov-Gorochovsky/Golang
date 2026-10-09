@@ -116,14 +116,29 @@ func (i *Ingester) flushBatch(batch []model.TelemetryLog) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// Problem: Transient database glitches (network drops, deadlocks) silently drop entire batches without retrying.
+	// Solution: Retry transient persistence failures with exponential backoff before marking batch dropped.
+	const maxRetries = 3
+	backoff := 20 * time.Millisecond
 
-	if err := i.repo.SaveLogsBatch(ctx, batch); err != nil {
-		slog.Error("Failed to flush batch", "count", len(batch), "error", err)
-		return
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := i.repo.SaveLogsBatch(ctx, batch)
+		cancel()
+
+		if err == nil {
+			slog.Debug("Flushed batch successfully", "count", len(batch), "attempt", attempt)
+			return
+		}
+
+		slog.Warn("Transient batch flush failure, retrying", "attempt", attempt, "max", maxRetries, "error", err)
+		if attempt < maxRetries {
+			time.Sleep(backoff)
+			backoff *= 2
+		}
 	}
-	slog.Debug("Flushed batch", "count", len(batch))
+
+	slog.Error("Failed to flush batch after max retries; batch dropped", "count", len(batch), "retries", maxRetries)
 }
 
 // Stop drains remaining buffered events across all workers and shuts down the pool.

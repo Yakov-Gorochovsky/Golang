@@ -113,3 +113,28 @@ func TestHandleIngest_BackpressureLoadShedding(t *testing.T) {
 		t.Errorf("expected fast-rejection under saturation (<10ms), took %v", elapsed)
 	}
 }
+
+func TestHandleIngest_Bottleneck_UnboundedBodyMemoryExhaustion(t *testing.T) {
+	mockIngester := &MockIngester{}
+	h := handler.NewTelemetryHandler(mockIngester)
+	handlerFunc := http.HandlerFunc(h.HandleIngest)
+
+	// Send a 1MB oversized payload (exceeding reasonable 64KB telemetry limit)
+	hugeString := strings.Repeat("X", 1024*1024)
+	oversizedBody := `{"device_id":"dev-huge","event_type":"metric","payload":{"padding":"` + hugeString + `"}}`
+
+	req := httptest.NewRequest(http.MethodPost, "/telemetry", strings.NewReader(oversizedBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	handlerFunc.ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	t.Logf("[HARDENING EVIDENCE 2] 1MB payload processed in %v with HTTP %d", elapsed, rec.Code)
+
+	// In production, oversized payloads MUST be rejected with HTTP 413 (Request Entity Too Large)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("VULNERABILITY DETECTED: handler accepted oversized 1MB payload with HTTP %d, expected HTTP 413 (StatusRequestEntityTooLarge)", rec.Code)
+	}
+}

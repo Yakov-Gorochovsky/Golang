@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -9,6 +10,9 @@ import (
 	"github.com/Yakov-Gorochovsky/project/internal/model"
 	"github.com/go-playground/validator/v10"
 )
+
+// maxPayloadBytes limits telemetry payload to 64KB to prevent OOM memory exhaustion.
+const maxPayloadBytes = 64 << 10
 
 // Ingester represents the sink interface required for log ingestion.
 type Ingester interface {
@@ -32,14 +36,24 @@ func NewTelemetryHandler(ingester Ingester) *TelemetryHandler {
 // HandleIngest processes incoming POST telemetry events.
 func (h *TelemetryHandler) HandleIngest(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	var payload model.TelemetryLog
 
+	// Problem: Unbounded request bodies allow attackers or misconfigured agents to trigger OOM via multi-megabyte payloads.
+	// Solution: Wrap r.Body in http.MaxBytesReader (64KB cap) and fast-reject oversized bodies with HTTP 413.
+	r.Body = http.MaxBytesReader(w, r.Body, maxPayloadBytes)
+	defer r.Body.Close()
+
+	var payload model.TelemetryLog
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			slog.Warn("Payload exceeded maximum allowed size", "limit_bytes", maxPayloadBytes)
+			h.respondError(w, http.StatusRequestEntityTooLarge, "payload too large (max 64KB)")
+			return
+		}
 		slog.Warn("Received invalid JSON payload")
 		h.respondError(w, http.StatusBadRequest, "invalid json format")
 		return
 	}
-	defer r.Body.Close()
 
 	if err := h.validate.Struct(payload); err != nil {
 		slog.Warn("Validation failed", "error", err, "device_id", payload.DeviceID)

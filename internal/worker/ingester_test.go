@@ -2,6 +2,7 @@ package worker_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -322,5 +323,61 @@ func TestIngester_WorkerPool_ScalingSpeedup(t *testing.T) {
 
 	if speedup < 2.0 {
 		t.Errorf("expected 4 workers to provide at least 2x speedup over 1 worker, got %.2fx", speedup)
+	}
+}
+
+type flakyBatchRepo struct {
+	mu          sync.Mutex
+	failCount   int
+	maxFails    int
+	flushedLogs []model.TelemetryLog
+}
+
+func (f *flakyBatchRepo) SaveLog(ctx context.Context, log model.TelemetryLog) error {
+	return nil
+}
+
+func (f *flakyBatchRepo) SaveLogsBatch(ctx context.Context, logs []model.TelemetryLog) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failCount < f.maxFails {
+		f.failCount++
+		return errors.New("transient database connection reset")
+	}
+	f.flushedLogs = append(f.flushedLogs, logs...)
+	return nil
+}
+
+func (f *flakyBatchRepo) TotalFlushed() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.flushedLogs)
+}
+
+func TestIngester_Bottleneck_DataLossOnTransientStorageFailure(t *testing.T) {
+	// Simulate a database experiencing 2 transient errors (e.g. connection reset) before recovering.
+	flakyRepo := &flakyBatchRepo{maxFails: 2}
+	batchSize := 20
+	flushTimeout := 50 * time.Millisecond
+
+	ingester := worker.NewIngester(flakyRepo, batchSize, flushTimeout, 1)
+
+	for i := 0; i < batchSize; i++ {
+		ingester.Enqueue(model.TelemetryLog{
+			DeviceID:  "device-resilience",
+			EventType: "heartbeat",
+		})
+	}
+
+	// Stop triggers final batch flush
+	ingester.Stop()
+
+	t.Logf("[HARDENING EVIDENCE 1] Transient failures simulated: %d, logs successfully flushed: %d / %d",
+		flakyRepo.failCount, flakyRepo.TotalFlushed(), batchSize)
+
+	if flakyRepo.TotalFlushed() != batchSize {
+		t.Fatalf("DATA LOSS DETECTED: expected %d logs preserved after transient failure, got %d (loss rate: %.1f%%)",
+			batchSize, flakyRepo.TotalFlushed(),
+			float64(batchSize-flakyRepo.TotalFlushed())/float64(batchSize)*100.0)
 	}
 }
