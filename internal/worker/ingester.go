@@ -11,28 +11,38 @@ import (
 	"github.com/Yakov-Gorochovsky/project/internal/repository"
 )
 
-// Ingester buffers incoming telemetry logs and bulk-inserts them into repository storage.
+// Ingester buffers incoming telemetry logs and bulk-inserts them using a concurrent worker pool.
 type Ingester struct {
 	logChan       chan model.TelemetryLog
 	repo          repository.TelemetryRepository
 	batchSize     int
 	flushTimeout  time.Duration
+	workerCount   int
 	wg            sync.WaitGroup
 	enqueuedCount atomic.Uint64
 	droppedCount  atomic.Uint64
 }
 
-// NewIngester initializes and starts the background ingestion worker.
-func NewIngester(repo repository.TelemetryRepository, batchSize int, timeoutSec time.Duration) *Ingester {
+// NewIngester initializes and starts the ingestion worker pool.
+// Optional workerCount sets the number of concurrent consumers (default: 1).
+func NewIngester(repo repository.TelemetryRepository, batchSize int, timeoutSec time.Duration, workerCount ...int) *Ingester {
+	numWorkers := 1
+	if len(workerCount) > 0 && workerCount[0] > 0 {
+		numWorkers = workerCount[0]
+	}
+
 	ing := &Ingester{
-		logChan:      make(chan model.TelemetryLog, batchSize*2),
+		logChan:      make(chan model.TelemetryLog, batchSize*numWorkers*2),
 		repo:         repo,
 		batchSize:    batchSize,
 		flushTimeout: timeoutSec,
+		workerCount:  numWorkers,
 	}
 
-	ing.wg.Add(1)
-	go ing.startConsumer()
+	ing.wg.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go ing.startConsumer(w)
+	}
 
 	return ing
 }
@@ -65,7 +75,12 @@ func (i *Ingester) QueueDepth() int {
 	return len(i.logChan)
 }
 
-func (i *Ingester) startConsumer() {
+// WorkerCount returns the number of active consumers in the pool.
+func (i *Ingester) WorkerCount() int {
+	return i.workerCount
+}
+
+func (i *Ingester) startConsumer(workerID int) {
 	defer i.wg.Done()
 
 	buffer := make([]model.TelemetryLog, 0, i.batchSize)
@@ -111,7 +126,7 @@ func (i *Ingester) flushBatch(batch []model.TelemetryLog) {
 	slog.Debug("Flushed batch", "count", len(batch))
 }
 
-// Stop drains remaining buffered events and shuts down the consumer.
+// Stop drains remaining buffered events across all workers and shuts down the pool.
 func (i *Ingester) Stop() {
 	close(i.logChan)
 	i.wg.Wait()

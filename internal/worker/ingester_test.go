@@ -246,3 +246,81 @@ func BenchmarkIngester_Enqueue_Saturated(b *testing.B) {
 		_ = ingester.Enqueue(sampleLog)
 	}
 }
+
+func TestIngester_Bottleneck_SingleWorkerDrainSpeed(t *testing.T) {
+	flushDelay := 5 * time.Millisecond
+	repo := &mockRepo{flushDelay: flushDelay}
+
+	batchSize := 50
+	flushTimeout := 2 * time.Second
+	ingester := worker.NewIngester(repo, batchSize, flushTimeout)
+
+	totalLogs := 1000
+	start := time.Now()
+
+	for i := 0; i < totalLogs; i++ {
+		for !ingester.Enqueue(model.TelemetryLog{DeviceID: "bench", EventType: "test"}) {
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
+
+	ingester.Stop()
+	elapsed := time.Since(start)
+
+	rate := float64(repo.TotalFlushed()) / elapsed.Seconds()
+	t.Logf("[PHASE 2 BOTTLENECK EVIDENCE] 1 Worker processed %d logs in %v (rate: %.0f logs/sec)",
+		repo.TotalFlushed(), elapsed, rate)
+
+	if elapsed < 80*time.Millisecond {
+		t.Errorf("expected single worker to be constrained by sequential flush latency")
+	}
+}
+
+func TestIngester_WorkerPool_ScalingSpeedup(t *testing.T) {
+	flushDelay := 5 * time.Millisecond
+	totalLogs := 1000
+	batchSize := 50
+	flushTimeout := 2 * time.Second
+
+	// Run with 1 worker
+	repo1 := &mockRepo{flushDelay: flushDelay}
+	ingester1 := worker.NewIngester(repo1, batchSize, flushTimeout, 1)
+	start1 := time.Now()
+	for i := 0; i < totalLogs; i++ {
+		for !ingester1.Enqueue(model.TelemetryLog{DeviceID: "dev", EventType: "test"}) {
+			time.Sleep(500 * time.Microsecond)
+		}
+	}
+	ingester1.Stop()
+	dur1 := time.Since(start1)
+
+	// Run with 4 workers
+	repo4 := &mockRepo{flushDelay: flushDelay}
+	ingester4 := worker.NewIngester(repo4, batchSize, flushTimeout, 4)
+	start4 := time.Now()
+	for i := 0; i < totalLogs; i++ {
+		for !ingester4.Enqueue(model.TelemetryLog{DeviceID: "dev", EventType: "test"}) {
+			time.Sleep(500 * time.Microsecond)
+		}
+	}
+	ingester4.Stop()
+	dur4 := time.Since(start4)
+
+	rate1 := float64(totalLogs) / dur1.Seconds()
+	rate4 := float64(totalLogs) / dur4.Seconds()
+	speedup := float64(dur1) / float64(dur4)
+
+	t.Logf("[PHASE 2 EVIDENCE] 1 Worker: %v (%.0f logs/sec) | 4 Workers: %v (%.0f logs/sec) | Speedup: %.2fx",
+		dur1, rate1, dur4, rate4, speedup)
+
+	if repo1.TotalFlushed() != totalLogs {
+		t.Fatalf("expected repo1 to have %d logs, got %d", totalLogs, repo1.TotalFlushed())
+	}
+	if repo4.TotalFlushed() != totalLogs {
+		t.Fatalf("expected repo4 to have %d logs, got %d", totalLogs, repo4.TotalFlushed())
+	}
+
+	if speedup < 2.0 {
+		t.Errorf("expected 4 workers to provide at least 2x speedup over 1 worker, got %.2fx", speedup)
+	}
+}

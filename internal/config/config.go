@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 )
 
@@ -10,16 +11,23 @@ type AppConfig struct {
 	Port         string
 	DatabaseURL  string
 	BatchSize    int
-	FlushTimeout string // Time in seconds to wait before flushing buffer
+	FlushTimeout string
+	WorkerCount  int
 }
 
 // Load reads from environment variables, providing sensible defaults if missing.
 func Load() *AppConfig {
+	defaultWorkers := runtime.NumCPU()
+	if defaultWorkers < 2 {
+		defaultWorkers = 2
+	}
+
 	return &AppConfig{
 		Port:         getEnv("PORT", "8080"),
 		DatabaseURL:  getEnv("DATABASE_URL", "postgres://user:password@localhost:5432/telemetry"),
 		BatchSize:    getEnvAsInt("BATCH_SIZE", 500),
 		FlushTimeout: getEnv("FLUSH_TIMEOUT_SEC", "3"),
+		WorkerCount:  getEnvAsInt("WORKER_COUNT", defaultWorkers),
 	}
 }
 

@@ -42,7 +42,8 @@ func main() {
 	repo := repository.NewPostgresTelemetryRepo(pool)
 
 	flushTimeoutSec, _ := time.ParseDuration(cfg.FlushTimeout + "s")
-	ingester := worker.NewIngester(repo, cfg.BatchSize, flushTimeoutSec)
+	ingester := worker.NewIngester(repo, cfg.BatchSize, flushTimeoutSec, cfg.WorkerCount)
+	slog.Info("Ingestion worker pool started", "workers", cfg.WorkerCount, "batch_size", cfg.BatchSize)
 
 	telemetryHandler := handler.NewTelemetryHandler(ingester)
 	router := handler.NewRouter(telemetryHandler)
