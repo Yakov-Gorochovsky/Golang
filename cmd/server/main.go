@@ -17,14 +17,12 @@ import (
 )
 
 func main() {
-	// 1. Initialize configuration and logger
 	cfg := config.Load()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 
-	slog.Info("Starting Telemetry API...", "port", cfg.Port)
+	slog.Info("Starting Telemetry API", "port", cfg.Port)
 
-	// 2. Setup Database Connection Pool
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -41,20 +39,14 @@ func main() {
 	}
 	slog.Info("Database connection pool established")
 
-	// 3. Wire up the components (Dependency Injection)
 	repo := repository.NewPostgresTelemetryRepo(pool)
 
-	// Parse flush timeout config
 	flushTimeoutSec, _ := time.ParseDuration(cfg.FlushTimeout + "s")
-
-	// Create and start the background concurrent worker
 	ingester := worker.NewIngester(repo, cfg.BatchSize, flushTimeoutSec)
 
-	// Pass the worker into the HTTP handler
 	telemetryHandler := handler.NewTelemetryHandler(ingester)
 	router := handler.NewRouter(telemetryHandler)
 
-	// 4. Start the Server
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      router,
@@ -70,7 +62,6 @@ func main() {
 		}
 	}()
 
-	// Wait for an interrupt signal to gracefully shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit
@@ -79,13 +70,10 @@ func main() {
 	ctxShutDown, cancelShutDown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutDown()
 
-	// Shut down HTTP server first to stop accepting new requests
 	if err := server.Shutdown(ctxShutDown); err != nil {
 		slog.Error("Server forced to shutdown", "error", err)
 	}
 
-	// Then gracefully stop the background worker and let it flush the remaining buffer
 	ingester.Stop()
-
 	slog.Info("Server exited properly")
 }

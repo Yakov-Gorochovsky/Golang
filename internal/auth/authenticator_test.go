@@ -287,10 +287,10 @@ func TestNewAuthenticator_PanicsOnWrongCurve(t *testing.T) {
 //  5. Asserts that received == expectedValid and SpoofedDropped == expectedBad.
 func TestStart_ConcurrentPipeline(t *testing.T) {
 	const (
-		total        = 300  // total payloads in the corpus
-		validEvery   = 3    // every Nth payload is valid; others are malformed
-		numWorkers   = 8
-		testTimeout  = 10 * time.Second
+		total       = 300 // total payloads in the corpus
+		validEvery  = 3   // every Nth payload is valid; others are malformed
+		numWorkers  = 8
+		testTimeout = 10 * time.Second
 	)
 
 	priv := newKey(t)
@@ -380,4 +380,3 @@ func TestStart_ConcurrentPipeline(t *testing.T) {
 		t.Errorf("gotValid(%d) + gotBad(%d) = %d, want %d", gotValid, gotBad, gotValid+gotBad, total)
 	}
 }
-

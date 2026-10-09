@@ -80,7 +80,7 @@ func NewAuthenticator(ctx context.Context, numWorkers int, pubKey *ecdsa.PublicK
 	if pubKey == nil || pubKey.Curve != elliptic.P256() {
 		panic("auth: public key must use the P-256 curve to match SHA-256")
 	}
-	
+
 	return &Authenticator{
 		Ctx:        ctx,
 		NumWorkers: numWorkers,

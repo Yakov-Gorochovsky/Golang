@@ -1,0 +1,31 @@
+# Binaries and build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage
+coverage.html
+coverage.txt
+
+# Local planning and issue scratch files
+plan.md
+rate_limiter_plan.md
+ticket.md
+
+# Environment and secrets
+.env
+.env.local
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

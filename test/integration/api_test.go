@@ -1,17 +1,32 @@
-// The 'test/' directory is the community standard location for additional
-// external tests and test data.
-//
-// While unit tests (which test a specific function in isolation) go directly
-// next to the code in '_test.go' files, larger tests that verify the entire
-// system (Integration Tests, End-to-End Tests) usually go here in 'test/'.
 package integration_test
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
 
-// TestFullServerBoot represents a larger integration test.
-func TestFullServerBoot(t *testing.T) {
-	// This test might start up an actual web server, hit it with real HTTP
-	// requests, and connect to a real or mock database to ensure all pieces
-	// work together seamlessly.
-	t.Log("Integration test ran!")
+	"github.com/Yakov-Gorochovsky/project/internal/handler"
+	"github.com/Yakov-Gorochovsky/project/internal/model"
+)
+
+type stubIngester struct{}
+
+func (s *stubIngester) Enqueue(log model.TelemetryLog) {}
+
+func TestHealthEndpoint(t *testing.T) {
+	h := handler.NewTelemetryHandler(&stubIngester{})
+	router := handler.NewRouter(h)
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	resp, err := http.Get(server.URL + "/health")
+	if err != nil {
+		t.Fatalf("failed to query health endpoint: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, resp.StatusCode)
+	}
 }

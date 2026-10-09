@@ -49,8 +49,7 @@ Incoming Request ───► │  [Rate Limiter (Redis / Sliding Window)]      
 - **PostgreSQL Repository with pgx v5** ([internal/repository/postgres.go](file:///c:/Dev/Golang/project/internal/repository/postgres.go)): High-performance persistence utilizing `pgxpool.Pool` and binary `CopyFrom` streaming for JSONB telemetry payloads.
 - **Sliding-Window Rate Limiter** ([internal/middleware/ratelimit.go](file:///c:/Dev/Golang/project/internal/middleware/ratelimit.go)): Distributed rate limiting powered by Redis Sorted Sets (ZSET) and atomic Lua scripts, supporting client IP detection via `X-Forwarded-For` and a fail-open resiliency strategy.
 - **V2X Cryptographic Authenticator** ([internal/auth/auth.go](file:///c:/Dev/Golang/project/internal/auth/auth.go)): Concurrent worker pool verifying ECDSA P-256 / SHA-256 signatures for vehicle-to-everything broadcasts with atomic spoof counters.
-- **Audit Sanitizer** ([internal/worker/audit.go](file:///c:/Dev/Golang/project/internal/worker/audit.go)): Concurrent worker pool sanitizing PII (regex email masking) from audit event streams.
-- **Production-Ready Logging** ([pkg/logger/logger.go](file:///c:/Dev/Golang/project/pkg/logger/logger.go)): Structured JSON logging via Go's standard `log/slog`.
+- **Production-Ready Logging**: Structured JSON logging via Go standard `log/slog`.
 
 ---
 
@@ -187,19 +186,17 @@ See [PERFORMANCE.md](file:///c:/Dev/Golang/project/PERFORMANCE.md) for the live 
 ├── internal/
 │   ├── auth/                # Concurrent ECDSA cryptographic verification worker pool
 │   ├── config/              # Environment variable loading & defaults
-│   ├── example/             # Educational & idiomatic Go pattern demonstrations
 │   ├── handler/             # HTTP routing (chi) and REST endpoint handlers
 │   ├── middleware/          # Sliding-window Redis rate limiter middleware
 │   ├── model/               # Data structures & JSON validation tags
 │   ├── repository/          # PostgreSQL data access layer (pgxpool & CopyFrom)
 │   └── worker/              # In-memory batch ingester & audit stream sanitizers
-├── pkg/
-│   └── logger/              # Public reusable logger utilities
 ├── scripts/
 │   └── init.sql             # PostgreSQL schema & GIN indexes
 ├── test/
 │   └── integration/         # Integration test suite for API and repository
 ├── Dockerfile               # Multi-stage build producing a minimal scratch image
 ├── docker-compose.yml       # Local PostgreSQL service definition
-└── Taskfile.yml             # Task automation configuration
+├── Taskfile.yml             # Task automation configuration
+└── PERFORMANCE.md           # Live benchmark scorecard & memory metrics
 ```

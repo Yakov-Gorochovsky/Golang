@@ -51,9 +51,9 @@ func TestAuthenticator_verify(t *testing.T) {
 	validSig := signPayload(t, priv, vehicleData)
 
 	tests := []struct {
-		name    string
-		setup   func(t *testing.T) (*Authenticator, Payload)
-		want    bool
+		name  string
+		setup func(t *testing.T) (*Authenticator, Payload)
+		want  bool
 	}{
 		{
 			// Golden path: data was signed by the key the Authenticator holds.
