@@ -16,7 +16,7 @@ func TestAuditProcessor_SpawnsExactWorkers(t *testing.T) {
 	processor := NewAuditProcessor(ctx, numWorkers)
 
 	input := make(chan RawEvent)
-	
+
 	// Track goroutines before start
 	initialGoroutines := runtime.NumGoroutine()
 
@@ -26,7 +26,7 @@ func TestAuditProcessor_SpawnsExactWorkers(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	currentGoroutines := runtime.NumGoroutine()
-	
+
 	// We expect exactly `numWorkers` + 1 (for the coordinator WaitGroup routine)
 	expectedSpawned := numWorkers + 1
 	actualSpawned := currentGoroutines - initialGoroutines
@@ -95,8 +95,8 @@ func TestAuditProcessor_GracefulShutdownAndNoDataLoss(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	processor := NewAuditProcessor(ctx, 3)
 
-	// Unbuffered input channel perfectly ensures an event is confirmed 
-	// to be "in a worker's hands" the moment the send operation resolves. 
+	// Unbuffered input channel perfectly ensures an event is confirmed
+	// to be "in a worker's hands" the moment the send operation resolves.
 	input := make(chan RawEvent)
 	output := processor.Start(input)
 
@@ -130,12 +130,12 @@ func TestAuditProcessor_GracefulShutdownAndNoDataLoss(t *testing.T) {
 	received := 0
 	timeout := time.After(2 * time.Second)
 
-	loop:
+loop:
 	for {
 		select {
 		case ev, ok := <-output:
 			if !ok {
-				break loop // Output channel safely closed 
+				break loop // Output channel safely closed
 			}
 			if ev.Details != "*@*.*" {
 				t.Errorf("Unexpected detail payload: %s", ev.Details)
@@ -150,6 +150,6 @@ func TestAuditProcessor_GracefulShutdownAndNoDataLoss(t *testing.T) {
 		t.Errorf("Expected exactly 3 processed events before shutdown, but got %d", received)
 	}
 
-	// Because we read until the channel closed (ok == false), 
+	// Because we read until the channel closed (ok == false),
 	// this automatically proves the Graceful Shutdown logic closed the output safely.
 }

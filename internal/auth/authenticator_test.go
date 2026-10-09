@@ -260,6 +260,22 @@ func TestNewAuthenticator(t *testing.T) {
 	}
 }
 
+func TestNewAuthenticator_PanicsOnWrongCurve(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate P-384 key: %v", err)
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("NewAuthenticator did not panic when provided a P-384 key")
+		}
+	}()
+
+	ctx := context.Background()
+	auth.NewAuthenticator(ctx, 1, &priv.PublicKey)
+}
+
 // TestStart_ConcurrentPipeline is the primary stress test for Phase 3.
 //
 // It:
@@ -271,10 +287,10 @@ func TestNewAuthenticator(t *testing.T) {
 //  5. Asserts that received == expectedValid and SpoofedDropped == expectedBad.
 func TestStart_ConcurrentPipeline(t *testing.T) {
 	const (
-		total        = 300  // total payloads in the corpus
-		validEvery   = 3    // every Nth payload is valid; others are malformed
-		numWorkers   = 8
-		testTimeout  = 10 * time.Second
+		total       = 300 // total payloads in the corpus
+		validEvery  = 3   // every Nth payload is valid; others are malformed
+		numWorkers  = 8
+		testTimeout = 10 * time.Second
 	)
 
 	priv := newKey(t)
@@ -364,4 +380,3 @@ func TestStart_ConcurrentPipeline(t *testing.T) {
 		t.Errorf("gotValid(%d) + gotBad(%d) = %d, want %d", gotValid, gotBad, gotValid+gotBad, total)
 	}
 }
-

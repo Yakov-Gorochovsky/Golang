@@ -5,6 +5,7 @@ package auth
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
 	"sync"
 	"sync/atomic"
@@ -60,6 +61,14 @@ type Authenticator struct {
 //   - a valid signature produced by a different private key
 //   - data that was modified after signing
 func (a *Authenticator) verify(p Payload) bool {
+	// Add defense-in-depth length checks to prevent CPU DoS and GC pressure.
+	if len(p.Data) == 0 || len(p.Data) > 1024 {
+		return false
+	}
+	if len(p.Signature) == 0 || len(p.Signature) > 80 {
+		return false
+	}
+
 	digest := sha256.Sum256(p.Data)
 	return ecdsa.VerifyASN1(a.PubKey, digest[:], p.Signature)
 }
@@ -68,6 +77,10 @@ func (a *Authenticator) verify(p Payload) bool {
 // the Output channel so that Start can begin forwarding verified payloads
 // immediately without a separate setup step.
 func NewAuthenticator(ctx context.Context, numWorkers int, pubKey *ecdsa.PublicKey) *Authenticator {
+	if pubKey == nil || pubKey.Curve != elliptic.P256() {
+		panic("auth: public key must use the P-256 curve to match SHA-256")
+	}
+
 	return &Authenticator{
 		Ctx:        ctx,
 		NumWorkers: numWorkers,
@@ -98,7 +111,11 @@ func (a *Authenticator) Start(input <-chan Payload) <-chan Payload {
 						return
 					}
 					if a.verify(p) {
-						a.Output <- p
+						select {
+						case a.Output <- p:
+						case <-a.Ctx.Done():
+							return
+						}
 					} else {
 						atomic.AddInt64(&a.SpoofedDropped, 1)
 					}

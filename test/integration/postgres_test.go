@@ -1,3 +1,5 @@
+//go:build integration
+
 package integration_test
 
 import (
@@ -10,29 +12,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestPostgresRepository ensures that our repository layer interacts with the Real Database correctly.
-// This requires the docker-compose postgres container to be running!
 func TestPostgresRepository(t *testing.T) {
-	// Setup Database Connection Pool
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	// Use our development db setup
 	dbURL := "postgres://user:password@localhost:5432/telemetry"
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		t.Fatalf("Unable to connect to database. Did you run 'docker-compose up -d'? %v", err)
+		t.Skipf("Unable to connect to database at %s, skipping: %v", dbURL, err)
 	}
 	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
-		t.Fatalf("Cannot ping database. %v", err)
+		t.Skipf("PostgreSQL ping failed at %s, skipping integration test: %v", dbURL, err)
 	}
 
-	// Given: A Postgres Repo
 	repo := repository.NewPostgresTelemetryRepo(pool)
 
-	// And: A valid telemetry log model
 	logEvent := model.TelemetryLog{
 		DeviceID:  "int-test-device-01",
 		EventType: "integration_test_event",
@@ -42,22 +38,17 @@ func TestPostgresRepository(t *testing.T) {
 		},
 	}
 
-	// Act: Save it to the database
-	err = repo.SaveLog(context.Background(), logEvent)
-
-	// Assert: Check that it succeeded
-	if err != nil {
-		t.Errorf("Failed to save log to postgres: %v", err)
+	if err := repo.SaveLog(context.Background(), logEvent); err != nil {
+		t.Fatalf("failed to insert telemetry log: %v", err)
 	}
 
-	// Act & Assert (Verification): Query it back
 	var count int
 	err = pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM telemetry_logs WHERE device_id = $1", logEvent.DeviceID).Scan(&count)
 	if err != nil {
-		t.Fatalf("Failed to query inserted rows: %v", err)
+		t.Fatalf("failed to query inserted row: %v", err)
 	}
 
 	if count == 0 {
-		t.Errorf("Expected row to be inserted, but count was 0")
+		t.Fatalf("expected at least 1 inserted row, got %d", count)
 	}
 }
