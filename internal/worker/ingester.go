@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Yakov-Gorochovsky/project/internal/model"
@@ -12,11 +13,13 @@ import (
 
 // Ingester buffers incoming telemetry logs and bulk-inserts them into repository storage.
 type Ingester struct {
-	logChan      chan model.TelemetryLog
-	repo         repository.TelemetryRepository
-	batchSize    int
-	flushTimeout time.Duration
-	wg           sync.WaitGroup
+	logChan       chan model.TelemetryLog
+	repo          repository.TelemetryRepository
+	batchSize     int
+	flushTimeout  time.Duration
+	wg            sync.WaitGroup
+	enqueuedCount atomic.Uint64
+	droppedCount  atomic.Uint64
 }
 
 // NewIngester initializes and starts the background ingestion worker.
@@ -34,9 +37,32 @@ func NewIngester(repo repository.TelemetryRepository, batchSize int, timeoutSec 
 	return ing
 }
 
-// Enqueue adds a telemetry log to the processing buffer.
-func (i *Ingester) Enqueue(log model.TelemetryLog) {
-	i.logChan <- log
+// Enqueue attempts to buffer a log event. Returns false immediately if the queue
+// is saturated, enforcing non-blocking backpressure without stalling callers.
+func (i *Ingester) Enqueue(log model.TelemetryLog) bool {
+	select {
+	case i.logChan <- log:
+		i.enqueuedCount.Add(1)
+		return true
+	default:
+		i.droppedCount.Add(1)
+		return false
+	}
+}
+
+// EnqueuedTotal returns the cumulative count of successfully buffered logs.
+func (i *Ingester) EnqueuedTotal() uint64 {
+	return i.enqueuedCount.Load()
+}
+
+// DroppedTotal returns the cumulative count of dropped logs due to buffer saturation.
+func (i *Ingester) DroppedTotal() uint64 {
+	return i.droppedCount.Load()
+}
+
+// QueueDepth returns the current number of logs queued in the channel buffer.
+func (i *Ingester) QueueDepth() int {
+	return len(i.logChan)
 }
 
 func (i *Ingester) startConsumer() {

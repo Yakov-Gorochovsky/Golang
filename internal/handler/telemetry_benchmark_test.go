@@ -15,8 +15,9 @@ type atomicBenchIngester struct {
 	enqueuedCount atomic.Uint64
 }
 
-func (a *atomicBenchIngester) Enqueue(log model.TelemetryLog) {
+func (a *atomicBenchIngester) Enqueue(log model.TelemetryLog) bool {
 	a.enqueuedCount.Add(1)
+	return true
 }
 
 func BenchmarkHandleIngest_Sequential(b *testing.B) {

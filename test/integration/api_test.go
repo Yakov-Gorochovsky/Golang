@@ -11,7 +11,9 @@ import (
 
 type stubIngester struct{}
 
-func (s *stubIngester) Enqueue(log model.TelemetryLog) {}
+func (s *stubIngester) Enqueue(log model.TelemetryLog) bool {
+	return true
+}
 
 func TestHealthEndpoint(t *testing.T) {
 	h := handler.NewTelemetryHandler(&stubIngester{})

@@ -6,27 +6,24 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Yakov-Gorochovsky/project/internal/handler"
 	"github.com/Yakov-Gorochovsky/project/internal/model"
 )
 
-// MockIngester implements the handler.Ingester interface for testing
 type MockIngester struct {
 	EnqueuedLogs []model.TelemetryLog
 }
 
-func (m *MockIngester) Enqueue(log model.TelemetryLog) {
+func (m *MockIngester) Enqueue(log model.TelemetryLog) bool {
 	m.EnqueuedLogs = append(m.EnqueuedLogs, log)
+	return true
 }
 
 func TestHandleIngest(t *testing.T) {
-	// 1. Setup minimal dependencies
 	mockIngester := &MockIngester{}
 	h := handler.NewTelemetryHandler(mockIngester)
-
-	// Create an HTTP test handler based on the chi router logic in router.go
-	// (or just use the handler func directly)
 	handlerFunc := http.HandlerFunc(h.HandleIngest)
 
 	tests := []struct {
@@ -43,13 +40,13 @@ func TestHandleIngest(t *testing.T) {
 		},
 		{
 			name:           "Invalid JSON",
-			requestBody:    `{"device_id": "device-123" "missing_comma"}`, // Broken JSON
+			requestBody:    `{"device_id": "device-123" "missing_comma"}`,
 			expectedStatus: http.StatusBadRequest,
 			expectInBody:   `invalid json`,
 		},
 		{
-			name:           "Missing Required Field (Validation Error)",
-			requestBody:    `{"device_id":"device-123","payload":{}}`, // Missing 'event_type'
+			name:           "Missing Required Field",
+			requestBody:    `{"device_id":"device-123","payload":{}}`,
 			expectedStatus: http.StatusBadRequest,
 			expectInBody:   `validation failed`,
 		},
@@ -57,20 +54,15 @@ func TestHandleIngest(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange: Create HTTP recording tools
 			req, err := http.NewRequest(http.MethodPost, "/telemetry", strings.NewReader(tc.requestBody))
 			if err != nil {
 				t.Fatalf("Failed to create request: %v", err)
 			}
 			req.Header.Set("Content-Type", "application/json")
 
-			// We use ResponseRecorder to capture the HTTP response seamlessly
 			recorder := httptest.NewRecorder()
-
-			// Act: Serve the request
 			handlerFunc.ServeHTTP(recorder, req)
 
-			// Assert: Check results
 			if recorder.Code != tc.expectedStatus {
 				t.Errorf("Expected status %d, got %d", tc.expectedStatus, recorder.Code)
 			}
@@ -79,5 +71,45 @@ func TestHandleIngest(t *testing.T) {
 				t.Errorf("Expected body to contain '%s', got '%s'", tc.expectInBody, recorder.Body.String())
 			}
 		})
+	}
+}
+
+type saturatedIngester struct{}
+
+func (s *saturatedIngester) Enqueue(log model.TelemetryLog) bool {
+	return false
+}
+
+func TestHandleIngest_BackpressureLoadShedding(t *testing.T) {
+	h := handler.NewTelemetryHandler(&saturatedIngester{})
+	handlerFunc := http.HandlerFunc(h.HandleIngest)
+
+	req := httptest.NewRequest(http.MethodPost, "/telemetry", strings.NewReader(`{"device_id":"dev-1","event_type":"ping","payload":{"ok":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	// Warm up validator reflection caches
+	warmupReq := httptest.NewRequest(http.MethodPost, "/telemetry", strings.NewReader(`{"device_id":"dev-1","event_type":"ping","payload":{"ok":true}}`))
+	warmupReq.Header.Set("Content-Type", "application/json")
+	handlerFunc.ServeHTTP(httptest.NewRecorder(), warmupReq)
+
+	start := time.Now()
+	handlerFunc.ServeHTTP(rec, req)
+	elapsed := time.Since(start)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d on queue saturation, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+
+	if retryAfter := rec.Header().Get("Retry-After"); retryAfter != "1" {
+		t.Errorf("expected Retry-After header '1', got '%s'", retryAfter)
+	}
+
+	if status := rec.Header().Get("X-Backpressure-Status"); status != "saturated" {
+		t.Errorf("expected X-Backpressure-Status header 'saturated', got '%s'", status)
+	}
+
+	if elapsed > 10*time.Millisecond {
+		t.Errorf("expected fast-rejection under saturation (<10ms), took %v", elapsed)
 	}
 }

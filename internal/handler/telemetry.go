@@ -12,7 +12,7 @@ import (
 
 // Ingester represents the sink interface required for log ingestion.
 type Ingester interface {
-	Enqueue(log model.TelemetryLog)
+	Enqueue(log model.TelemetryLog) bool
 }
 
 // TelemetryHandler handles telemetry ingestion HTTP requests.
@@ -47,7 +47,15 @@ func (h *TelemetryHandler) HandleIngest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.ingester.Enqueue(payload)
+	if !h.ingester.Enqueue(payload) {
+		slog.Warn("Ingestion queue saturated, shedding load",
+			"device_id", payload.DeviceID,
+			"event_type", payload.EventType)
+		w.Header().Set("Retry-After", "1")
+		w.Header().Set("X-Backpressure-Status", "saturated")
+		h.respondError(w, http.StatusServiceUnavailable, "service unavailable: ingestion queue saturated")
+		return
+	}
 
 	slog.Debug("Enqueued log event",
 		"device_id", payload.DeviceID,

@@ -168,3 +168,81 @@ func BenchmarkIngester_Enqueue(b *testing.B) {
 		ingester.Enqueue(sampleLog)
 	}
 }
+
+func TestIngester_NonBlockingBackpressureUnderSaturation(t *testing.T) {
+	flushDelay := 100 * time.Millisecond
+	repo := &mockRepo{flushDelay: flushDelay}
+
+	// Buffer capacity is batchSize * 2 = 4
+	batchSize := 2
+	flushTimeout := 1 * time.Second
+	ingester := worker.NewIngester(repo, batchSize, flushTimeout)
+	defer ingester.Stop()
+
+	// Send 2 items to trigger flushBatch, which sleeps for 200ms
+	for i := 0; i < 2; i++ {
+		if !ingester.Enqueue(model.TelemetryLog{DeviceID: "init"}) {
+			t.Fatalf("expected initial warmup item #%d to succeed", i)
+		}
+	}
+
+	// Brief pause to ensure the consumer picked up the 2 items and entered flushBatch
+	time.Sleep(20 * time.Millisecond)
+
+	// Now fill the channel buffer completely (capacity = 4)
+	for i := 0; i < 4; i++ {
+		if !ingester.Enqueue(model.TelemetryLog{DeviceID: "fill-chan"}) {
+			t.Fatalf("expected channel buffer fill #%d to succeed", i)
+		}
+	}
+
+	// Channel is now 100% saturated. Test non-blocking load shedding.
+	start := time.Now()
+	ok := ingester.Enqueue(model.TelemetryLog{
+		DeviceID:  "overflow-req",
+		EventType: "burst",
+		Payload:   map[string]interface{}{"dropped": true},
+	})
+	elapsed := time.Since(start)
+
+	t.Logf("[PHASE 1 EVIDENCE] Saturated Enqueue completed in %v, returned: %v", elapsed, ok)
+
+	if ok {
+		t.Fatalf("expected Enqueue to return false when channel buffer is saturated")
+	}
+
+	if elapsed > 1*time.Millisecond {
+		t.Fatalf("expected non-blocking return (<1ms), but blocked for %v", elapsed)
+	}
+
+	if ingester.DroppedTotal() != 1 {
+		t.Fatalf("expected DroppedTotal == 1, got %d", ingester.DroppedTotal())
+	}
+
+	if ingester.EnqueuedTotal() != 6 {
+		t.Fatalf("expected EnqueuedTotal == 6, got %d", ingester.EnqueuedTotal())
+	}
+}
+
+func BenchmarkIngester_Enqueue_Saturated(b *testing.B) {
+	repo := &mockRepo{flushDelay: 50 * time.Millisecond}
+	batchSize := 2
+	flushTimeout := 1 * time.Second
+
+	ingester := worker.NewIngester(repo, batchSize, flushTimeout)
+	defer ingester.Stop()
+
+	// Pre-saturate
+	for i := 0; i < 6; i++ {
+		ingester.Enqueue(model.TelemetryLog{DeviceID: "fill"})
+	}
+
+	sampleLog := model.TelemetryLog{DeviceID: "overflow"}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_ = ingester.Enqueue(sampleLog)
+	}
+}
