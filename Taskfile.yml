@@ -20,6 +20,11 @@ tasks:
     cmds:
       - go test ./...
 
+  bench:
+    desc: Run micro-benchmarks with memory allocations reported
+    cmds:
+      - go test -bench=. -benchmem -run=^$ ./internal/handler/... ./internal/worker/...
+
   lint:
     desc: Run golangci-lint
     cmds:

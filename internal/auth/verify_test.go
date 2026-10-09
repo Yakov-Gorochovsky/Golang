@@ -141,6 +141,30 @@ func TestAuthenticator_verify(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			// Defense-in-depth: Reject excessively large Data to prevent CPU DoS
+			name: "data exceeding maximum length returns false",
+			setup: func(t *testing.T) (*Authenticator, Payload) {
+				t.Helper()
+				a := &Authenticator{PubKey: &priv.PublicKey}
+				largeData := make([]byte, 1025)
+				p := Payload{Data: largeData, Signature: validSig}
+				return a, p
+			},
+			want: false,
+		},
+		{
+			// Defense-in-depth: Reject excessively large Signature to prevent GC pressure
+			name: "signature exceeding maximum length returns false",
+			setup: func(t *testing.T) (*Authenticator, Payload) {
+				t.Helper()
+				a := &Authenticator{PubKey: &priv.PublicKey}
+				largeSig := make([]byte, 81)
+				p := Payload{Data: vehicleData, Signature: largeSig}
+				return a, p
+			},
+			want: false,
+		},
 	}
 
 	for _, tc := range tests {
